@@ -10,6 +10,6 @@ This BN plugin implements a disassembler and lifter for the eBPF architecture an
 git submodule update --init
 
 mkdir build
-cmake . -G Ninja build
+cmake -B build . -G Ninja -DBN_API_PATH=/usr/local/opt/binaryninja-api
 cmake --build build
 ```

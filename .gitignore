@@ -1,0 +1,17 @@
+build
+CMakeFiles
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+build.ninja
+*.o
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exp
+*.ilk
+*.lib
+*.pdb
+*.obj
+.qt
