@@ -1,3 +1,5 @@
+#pragma once
+
 #include <capstone/bpf.h>
 #include <capstone/capstone.h>
 
@@ -39,7 +41,7 @@ struct decomp_result {
 extern "C" int ebpf_init(void);
 extern "C" void ebpf_release(void);
 extern "C" int ebpf_decompose(
-    const uint8_t* data, int size, uint32_t addr,
+    const uint8_t* data, int size, uint64_t addr,
     bool lil_end, struct decomp_result* result);
 extern "C" int ebpf_disassemble(
     struct decomp_result*, char* buf, size_t len);

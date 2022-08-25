@@ -27,7 +27,10 @@ endif()
 
 set(CAPSTONE_ARCHITECTURE_DEFAULT OFF CACHE INTERNAL "disable arch by default" FORCE)
 set(CAPSTONE_BPF_SUPPORT ON CACHE INTERNAL "enable BPF only" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "" FORCE)
 add_subdirectory(${PROJECT_SOURCE_DIR}/capstone)
+set_target_properties(capstone PROPERTIES
+	POSITION_INDEPENDENT_CODE ON)
 
 target_link_libraries(arch_ebpf binaryninjaapi capstone)
 

@@ -2,6 +2,8 @@
 
 #include <binaryninjaapi.h>
 
+#include <cstring>
+
 thread_local csh handle_lil = 0;
 thread_local csh handle_big = 0;
 
@@ -14,10 +16,10 @@ ebpf_init(void)
         goto beach;
     }
 
-    if (cs_open(CS_ARCH_BPF, CS_MODE_BIG_ENDIAN, &handle_big) != CS_ERR_OK) {
+    if (cs_open(CS_ARCH_BPF, (cs_mode)(CS_MODE_BIG_ENDIAN | CS_MODE_BPF_EXTENDED), &handle_big) != CS_ERR_OK) {
         goto beach;
     }
-    if (cs_open(CS_ARCH_BPF, CS_MODE_LITTLE_ENDIAN, &handle_lil) != CS_ERR_OK) {
+    if (cs_open(CS_ARCH_BPF, (cs_mode)(CS_MODE_LITTLE_ENDIAN | CS_MODE_BPF_EXTENDED), &handle_lil) != CS_ERR_OK) {
         goto beach;
     }
 
@@ -49,7 +51,7 @@ ebpf_release(void)
 extern "C" int
 ebpf_decompose(const uint8_t* data,
     int size,
-    uint32_t addr,
+    uint64_t addr,
     bool lil_end,
     struct decomp_result* res)
 {
