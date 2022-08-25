@@ -9,6 +9,7 @@ using namespace BinaryNinja;
 
 #include "disassembler.h"
 #include "il.h"
+#include "opcodes.h"
 
 enum ElfBpfRelocationType {
     R_BPF_NONE = 0,
@@ -35,6 +36,22 @@ GetRelocationString(ElfBpfRelocationType relocType)
     if (relocTable.count(relocType))
         return relocTable.at(relocType);
     return "Unknown eBPF relocation";
+}
+
+static void WriteNop(uint8_t* data)
+{
+    data[0] = BPF_OPC_XOR64_REG;
+    memset(data + 1, 0, 7);
+}
+
+static bool IsBranch(const uint8_t* data)
+{
+    return (data[0] & 0x7) == 0x5;
+}
+
+static bool IsLongIns(const uint8_t* data)
+{
+    return data[0] == BPF_OPC_LDDW;
 }
 
 class EBPFArchitecture : public Architecture {
@@ -300,17 +317,69 @@ public:
 
     virtual bool ConvertToNop(uint8_t* data, uint64_t, size_t len) override
     {
-        return false;
+        if (len < 8) {
+            return false;
+        }
+        if (IsLongIns(data) && len >= 16) {
+            WriteNop(data + 8);
+        }
+        WriteNop(data);
+        return true;
     }
 
     virtual bool AlwaysBranch(uint8_t* data, uint64_t addr, size_t len) override
     {
-        return false;
+        if (len < 8 || !IsBranch(data)) {
+            return false;
+        }
+        data[0] = BPF_OPC_JA;
+        data[1] = 0;
+        return true;
     }
 
     virtual bool InvertBranch(uint8_t* data, uint64_t addr, size_t len) override
     {
-        return false;
+        if (len < 8 || !IsBranch(data)) {
+            return false;
+        }
+        uint8_t new_opc = data[0] & 0x0F;
+        switch (data[0] >> 4) {
+        case 0x0: // JA
+            WriteNop(data);
+            break;
+        case 0x1: // JEQ
+        case 0x5: // JNE
+            new_opc |= (new_opc ^ 0x40);
+            break;
+        case 0x2: // JGT
+            new_opc |= 0xb0; // JLE
+            break;
+        case 0x3: // JGE
+            new_opc |= 0xa0; // JLT
+            break;
+        case 0x6: // JSGT
+            new_opc |= 0xd0; // JSLE
+            break;
+        case 0x7: // JSGE
+            new_opc |= 0xc0; // JLT
+            break;
+        case 0xa: // JLT
+            new_opc |= 0x70; // JSGE
+            break;
+        case 0xb: // JLE
+            new_opc |= 0x20; // JGT
+            break;
+        case 0xc: // JSLT
+            new_opc |= 0x70; // JSGE
+            break;
+        case 0xd: // JSLE
+            new_opc |= 0x60; // JSGT
+            break;
+        default:
+            // JSET cannot be inverted
+            return false;
+        }
+        return true;
     }
 
     virtual bool SkipAndReturnValue(uint8_t* data,
