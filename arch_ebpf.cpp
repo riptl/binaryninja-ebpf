@@ -54,13 +54,28 @@ static bool IsLongIns(const uint8_t* data)
     return data[0] == BPF_OPC_LDDW;
 }
 
+static int16_t GetOffset(uint32_t x)
+{
+    int16_t ret;
+    if (x < 0x8000) {
+        ret = (int16_t)x;
+    } else {
+        ret = (int16_t)(0x10000 - x);
+    }
+    return ret;
+}
+
 class EBPFArchitecture : public Architecture {
 private:
     BNEndianness endian;
 
-    BNRegisterInfo RegisterInfo()
+    BNRegisterInfo RegisterInfo(uint32_t fullWidthReg, size_t offset, size_t size)
     {
         BNRegisterInfo result;
+        result.fullWidthRegister = fullWidthReg;
+        result.offset = offset;
+        result.size = size;
+        result.extend = NoExtend;
         return result;
     }
 
@@ -111,7 +126,7 @@ public:
         struct decomp_result res;
         struct cs_insn* insn = &(res.insn);
         struct cs_detail* detail = &(res.detail);
-        struct cs_ppc* ppc = &(detail->ppc);
+        struct cs_bpf* bpf = &(detail->bpf);
         char buf[32];
         size_t strlenMnem;
 
@@ -134,8 +149,59 @@ public:
             buf[1] = '\0';
         result.emplace_back(TextToken, buf);
 
+        /* operands */
+        for (int i = 0; i < bpf->op_count; ++i) {
+            struct cs_bpf_op* op = &(bpf->operands[i]);
+            int16_t disp;
+
+            switch (op->type) {
+            case BPF_OP_REG:
+                result.emplace_back(RegisterToken, GetRegisterName(op->reg));
+                break;
+            case BPF_OP_IMM:
+                // TODO special snowflake insn
+                std::sprintf(buf, "%#lx", op->imm);
+                result.emplace_back(IntegerToken, buf, op->imm, 8);
+                break;
+            case BPF_OP_OFF:
+                disp = GetOffset(op->off);
+                if (disp >= 0) {
+                    std::sprintf(buf, "+%#x", disp);
+                } else {
+                    std::sprintf(buf, "-%#x", -disp);
+                }
+                result.emplace_back(CodeRelativeAddressToken, buf, disp, 2);
+                break;
+            case BPF_OP_MEM:
+                result.emplace_back(TextToken, "[");
+                result.emplace_back(RegisterToken, GetRegisterName(op->mem.base));
+                disp = GetOffset(op->mem.disp);
+                if (disp >= 0) {
+                    std::sprintf(buf, "+%#x", disp);
+                } else {
+                    std::sprintf(buf, "-%#x", -disp);
+                }
+                result.emplace_back(IntegerToken, buf, disp, 2);
+
+                result.emplace_back(TextToken, "]");
+                break;
+            default:
+                std::sprintf(buf, "unknown (%d)", op->type);
+                result.emplace_back(TextToken, buf);
+                break;
+            }
+
+            if (i < bpf->op_count - 1) {
+                result.emplace_back(OperandSeparatorToken, ", ");
+            }
+        }
+
         rc = true;
-        len = 8;
+        if (data[0] == BPF_OPC_LDDW) {
+            len = 16;
+        } else {
+            len = 8;
+        }
     beach:
         return rc;
     }
@@ -161,7 +227,11 @@ public:
 
     virtual std::string GetRegisterName(uint32_t regId) override
     {
-        return "invalid_reg";
+        const char* result = ebpf_reg_to_str(regId);
+        if (result == NULL) {
+            result = "unknown";
+        }
+        return result;
     }
 
     virtual std::vector<uint32_t> GetAllFlags() override
@@ -236,12 +306,38 @@ public:
 
     virtual std::vector<uint32_t> GetFullWidthRegisters() override
     {
-        return {};
+        return {
+            BPF_REG_R0,
+            BPF_REG_R1,
+            BPF_REG_R2,
+            BPF_REG_R3,
+            BPF_REG_R4,
+            BPF_REG_R5,
+            BPF_REG_R6,
+            BPF_REG_R7,
+            BPF_REG_R8,
+            BPF_REG_R9,
+            BPF_REG_R10,
+            // BPF_REG_R11
+        };
     }
 
     virtual std::vector<uint32_t> GetAllRegisters() override
     {
-        return {};
+        return {
+            BPF_REG_R0,
+            BPF_REG_R1,
+            BPF_REG_R2,
+            BPF_REG_R3,
+            BPF_REG_R4,
+            BPF_REG_R5,
+            BPF_REG_R6,
+            BPF_REG_R7,
+            BPF_REG_R8,
+            BPF_REG_R9,
+            BPF_REG_R10,
+            // BPF_REG_R11
+        };
     }
 
     virtual std::vector<uint32_t> GetGlobalRegisters() override
@@ -251,11 +347,27 @@ public:
 
     virtual BNRegisterInfo GetRegisterInfo(uint32_t regId) override
     {
-        return RegisterInfo();
+        switch (regId) {
+        case BPF_REG_R0:
+        case BPF_REG_R1:
+        case BPF_REG_R2:
+        case BPF_REG_R3:
+        case BPF_REG_R4:
+        case BPF_REG_R5:
+        case BPF_REG_R6:
+        case BPF_REG_R7:
+        case BPF_REG_R8:
+        case BPF_REG_R9:
+        case BPF_REG_R10:
+            return RegisterInfo(regId, 0, 8);
+        default:
+            return RegisterInfo(0, 0, 0);
+        }
     }
 
     virtual uint32_t GetStackPointerRegister() override
     {
+        // R11 but Capstone doesn't support that yet
         return 0;
     }
 
@@ -271,7 +383,7 @@ public:
         return false;
     }
 
-    bool Assemble(const std::string& code, uint64_t addr, DataBuffer& result, std::string& errors) override
+    virtual bool Assemble(const std::string& code, uint64_t addr, DataBuffer& result, std::string& errors) override
     {
         return false;
     }
@@ -289,14 +401,20 @@ public:
         uint64_t addr,
         size_t len) override
     {
-        return false;
+        if (len < 8) {
+            return false;
+        }
+        return IsBranch(data);
     }
 
     virtual bool IsInvertBranchPatchAvailable(const uint8_t* data,
         uint64_t addr,
         size_t len) override
     {
-        return false;
+        if (len < 8) {
+            return false;
+        }
+        return IsBranch(data) && data[0] != BPF_OPC_JSET_IMM && data[0] != BPF_OPC_JSET_REG;
     }
 
     virtual bool IsSkipAndReturnZeroPatchAvailable(const uint8_t* data,
