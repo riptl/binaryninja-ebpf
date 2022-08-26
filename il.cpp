@@ -337,6 +337,65 @@ bool GetLowLevelILForBPFInstruction(Architecture* arch, LowLevelILFunction& il,
         ei0 = il.SetRegister(8, oper0->reg, ei0);
         il.AddInstruction(ei0);
         break;
+    // ALU extension class
+    case BPF_INS_LE16:
+    case BPF_INS_BE16:
+        REQUIRE1OP
+        if ((insn->id == BPF_INS_LE16) == le) {
+            ei0 = il.LowPart(2, operToIL(il, oper0));
+        } else {
+            ei0 = il.RotateLeft(2, il.LowPart(2, operToIL(il, oper0)), il.Const(2, 8));
+        }
+        il.AddInstruction(il.SetRegister(8, oper0->reg, ei0));
+        break;
+    case BPF_INS_LE32:
+    case BPF_INS_BE32:
+        REQUIRE1OP
+        if ((insn->id == BPF_INS_LE32) == le) {
+            ei0 = il.LowPart(2, operToIL(il, oper0));
+        } else {
+            ei1 = operToIL(il, oper0);
+            // clang-format off
+            // dst  = (( src        & 0xff) << 24)
+            ei0 =               il.ShiftLeft(4, il.LowPart(1,                         ei1),                   il.Const(8, 24));
+            // dst |= (((src >>  8) & 0xff) << 16)
+            ei0 = il.Or(4, ei0, il.ShiftLeft(4, il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(4,  8))), il.Const(4, 16)));
+            // dst |= (((src >> 16) & 0xff) <<  8)
+            ei0 = il.Or(4, ei0, il.ShiftLeft(4, il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(4, 16))), il.Const(4,  8)));
+            // dst |=  ((src >> 24) & 0xff)
+            ei0 = il.Or(4, ei0,                 il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(4, 24))));
+            // clang-format on
+        }
+        il.AddInstruction(il.SetRegister(8, oper0->reg, ei0));
+        break;
+    case BPF_INS_LE64:
+    case BPF_INS_BE64:
+        REQUIRE1OP
+        if ((insn->id == BPF_INS_LE16) == le) {
+            il.AddInstruction(il.Nop());
+        } else {
+            ei1 = operToIL(il, oper0);
+            // clang-format off
+            // dst  = (( src        & 0xff) << 56)
+            ei0 =               il.ShiftLeft(8, il.LowPart(1,                         ei1),                   il.Const(8, 56));
+            // dst |= (((src >>  8) & 0xff) << 48)
+            ei0 = il.Or(8, ei0, il.ShiftLeft(8, il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(8,  8))), il.Const(8, 48)));
+            // dst |= (((src >> 16) & 0xff) << 40)
+            ei0 = il.Or(8, ei0, il.ShiftLeft(8, il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(8, 16))), il.Const(8, 40)));
+            // dst |= (((src >> 24) & 0xff) << 32)
+            ei0 = il.Or(8, ei0, il.ShiftLeft(8, il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(8, 24))), il.Const(8, 32)));
+            // dst |= (((src >> 32) & 0xff) << 24)
+            ei0 = il.Or(8, ei0, il.ShiftLeft(8, il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(8, 32))), il.Const(8, 24)));
+            // dst |= (((src >> 40) & 0xff) << 16)
+            ei0 = il.Or(8, ei0, il.ShiftLeft(8, il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(8, 40))), il.Const(8, 16)));
+            // dst |= (((src >> 48) & 0xff) <<  8)
+            ei0 = il.Or(8, ei0, il.ShiftLeft(8, il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(8, 48))), il.Const(8,  8)));
+            // dst |=  ((src >> 56) & 0xff)
+            ei0 = il.Or(8, ei0,                 il.LowPart(1, il.LogicalShiftRight(4, ei1, il.Const(8, 56))));
+            // clang-format on
+            il.AddInstruction(il.SetRegister(8, oper0->reg, ei0));
+        }
+        break;
     // Jump class
     case BPF_INS_JMP:
         REQUIRE1OP

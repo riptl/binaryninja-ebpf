@@ -190,7 +190,7 @@ public:
                 result.emplace_back(RegisterToken, GetRegisterName(op->reg));
                 break;
             case BPF_OP_IMM:
-                val = (int32_t)bpf->operands[0].imm;
+                val = (int32_t)op->imm;
                 FMT_I64(val);
                 result.emplace_back(IntegerToken, buf, op->imm, 8);
                 break;
