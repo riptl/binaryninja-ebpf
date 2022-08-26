@@ -91,6 +91,8 @@ static void JumpConditional(
     _JumpConditional(arch, il, t, f, condition);
 }
 
+extern thread_local csh handle_lil;
+
 bool GetLowLevelILForBPFInstruction(Architecture* arch, LowLevelILFunction& il,
     const uint8_t* data, uint64_t addr, decomp_result* res, bool le)
 {
@@ -116,6 +118,9 @@ bool GetLowLevelILForBPFInstruction(Architecture* arch, LowLevelILFunction& il,
 		case 0: break;
 	}
     // clang-format on
+
+    // printf("id=%s\n", cs_insn_name(handle_lil, insn->id));
+    // fflush(stdout);
 
     ExprId ei0, ei1, ei2;
     switch (insn->id) {
@@ -292,16 +297,21 @@ bool GetLowLevelILForBPFInstruction(Architecture* arch, LowLevelILFunction& il,
     // Call class
     case BPF_INS_CALL:
         REQUIRE1OP
-        if (data[1] & 0xF0 == 0x10) {
-            ei0 = il.ConstPointer(8, (uint64_t)((int64_t)addr + (int64_t)(oper0->off * 8) + 8));
+        if ((data[1] & 0xF0) == 0x10) {
+            ei0 = il.ConstPointer(8, CallDest(oper0, addr));
             ei0 = il.Call(ei0);
         } else {
             ei0 = il.SystemCall();
         }
         il.AddInstruction(ei0);
         break;
+    case BPF_INS_CALLX:
+        REQUIRE1OP
+        ei0 = il.Call(operToIL(il, oper0));
+        il.AddInstruction(ei0);
+        break;
     case BPF_INS_EXIT:
-        il.AddInstruction(il.Return(8));
+        il.AddInstruction(il.Return(il.Const(1, 1)));
         break;
     ReturnUnimpl:
     default:

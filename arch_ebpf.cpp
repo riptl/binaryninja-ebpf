@@ -54,17 +54,6 @@ static bool IsLongIns(const uint8_t* data)
     return data[0] == BPF_OPC_LDDW;
 }
 
-static int16_t GetOffset(uint32_t x)
-{
-    int16_t ret;
-    if (x < 0x8000) {
-        ret = (int16_t)x;
-    } else {
-        ret = (int16_t)(0x10000 - x);
-    }
-    return ret;
-}
-
 class EBPFArchitecture : public Architecture {
 private:
     BNEndianness endian;
@@ -104,10 +93,10 @@ public:
         struct decomp_result res;
         struct cs_insn* insn = &(res.insn);
 
-        if (maxLen < 4) {
+        if (maxLen < 8) {
             return false;
         }
-        if (ebpf_decompose(data, 16, addr, endian == LittleEndian, &res)) {
+        if (!ebpf_decompose(data, 16, addr, endian == LittleEndian, &res)) {
             goto beach;
         }
 
@@ -130,8 +119,8 @@ public:
             result.AddBranch(FalseBranch, addr + 8);
             break;
         case BPF_INS_CALL:
-            if (data[1] & 0xF0 == 0x10) {
-                result.AddBranch(CallDestination, JumpDest(data, addr, endian == LittleEndian));
+            if ((data[1] & 0xF0) == 0x10) {
+                result.AddBranch(CallDestination, CallDest(data, addr, endian == LittleEndian));
             } else {
                 result.AddBranch(SystemCall);
             }
@@ -159,13 +148,21 @@ public:
         struct cs_insn* insn = &(res.insn);
         struct cs_detail* detail = &(res.detail);
         struct cs_bpf* bpf = &(detail->bpf);
-        char buf[32];
         size_t strlenMnem;
+
+        char buf[256];
+#define FMT_I64(x)                                          \
+    do {                                                    \
+        if ((x) >= 0)                                       \
+            std::snprintf(buf, sizeof(buf), "+%#lx", (x));  \
+        else                                                \
+            std::snprintf(buf, sizeof(buf), "-%#lx", -(x)); \
+    } while (0)
 
         if (len < 8) {
             goto beach;
         }
-        if (ebpf_decompose(data, 16, addr, endian == LittleEndian, &res)) {
+        if (!ebpf_decompose(data, 16, addr, endian == LittleEndian, &res)) {
             goto beach;
         }
 
@@ -173,16 +170,12 @@ public:
         result.emplace_back(InstructionToken, insn->mnemonic);
 
         /* padding between mnemonic and operands */
-        memset(buf, ' ', 8);
-        strlenMnem = strlen(insn->mnemonic);
-        if (strlenMnem < 8)
-            buf[8 - strlenMnem] = '\0';
-        else
-            buf[1] = '\0';
-        result.emplace_back(TextToken, buf);
+        result.emplace_back(TextToken, std::string(10 - strlen(insn->mnemonic), ' '));
 
         if (insn->id == BPF_INS_CALL) {
-            std::sprintf(buf, "%#lx", bpf->operands[0].imm);
+            int64_t off = (int32_t)bpf->operands[0].imm;
+            off = off * 8 + 8;
+            FMT_I64(off);
             result.emplace_back(PossibleAddressToken, buf, bpf->operands[0].imm, 8);
             len = 8;
             return true;
@@ -191,36 +184,29 @@ public:
         /* operands */
         for (int i = 0; i < bpf->op_count; ++i) {
             struct cs_bpf_op* op = &(bpf->operands[i]);
-            int16_t disp;
+            int64_t val;
 
             switch (op->type) {
             case BPF_OP_REG:
                 result.emplace_back(RegisterToken, GetRegisterName(op->reg));
                 break;
             case BPF_OP_IMM:
-                // TODO special snowflake insn
-                std::sprintf(buf, "%#lx", op->imm);
+                val = (int32_t)bpf->operands[0].imm;
+                FMT_I64(val);
                 result.emplace_back(IntegerToken, buf, op->imm, 8);
                 break;
             case BPF_OP_OFF:
-                disp = GetOffset(op->off);
-                if (disp >= 0) {
-                    std::sprintf(buf, "+%#x", disp);
-                } else {
-                    std::sprintf(buf, "-%#x", -disp);
-                }
-                result.emplace_back(CodeRelativeAddressToken, buf, disp, 2);
+                val = Int16SignExtend(op->off);
+                FMT_I64(val);
+                result.emplace_back(CodeRelativeAddressToken, buf, val, 2);
                 break;
             case BPF_OP_MEM:
                 result.emplace_back(TextToken, "[");
+
                 result.emplace_back(RegisterToken, GetRegisterName(op->mem.base));
-                disp = GetOffset(op->mem.disp);
-                if (disp >= 0) {
-                    std::sprintf(buf, "+%#x", disp);
-                } else {
-                    std::sprintf(buf, "-%#x", -disp);
-                }
-                result.emplace_back(IntegerToken, buf, disp, 2);
+                val = Int16SignExtend(op->mem.disp) * 8 + 8;
+                FMT_I64(val);
+                result.emplace_back(IntegerToken, buf, val, 2);
 
                 result.emplace_back(TextToken, "]");
                 break;
@@ -236,7 +222,7 @@ public:
         }
 
         rc = true;
-        if (data[0] == BPF_OPC_LDDW) {
+        if (IsLongIns(data)) {
             len = 16;
         } else {
             len = 8;
@@ -256,13 +242,17 @@ public:
         if (len < 8) {
             goto beach;
         }
-        if (ebpf_decompose(data, len, addr, endian == LittleEndian, &res)) {
+        if (!ebpf_decompose(data, len, addr, endian == LittleEndian, &res)) {
             il.AddInstruction(il.Undefined());
             goto beach;
         }
 
         rc = GetLowLevelILForBPFInstruction(this, il, data, addr, &res, endian == LittleEndian);
-        len = 8;
+        if (IsLongIns(data)) {
+            len = 16;
+        } else {
+            len = 8;
+        }
 
     beach:
         return rc;
@@ -634,7 +624,98 @@ public:
 
     virtual uint32_t GetIntegerReturnValueRegister() override
     {
-        return PPC_REG_R0;
+        return BPF_REG_R0;
+    }
+};
+
+class EbpfElfRelocationHandler : public RelocationHandler {
+public:
+    virtual bool ApplyRelocation(Ref<BinaryView> view, Ref<Architecture> arch, Ref<Relocation> reloc, uint8_t* dest, size_t len) override
+    {
+        auto info = reloc->GetInfo();
+        uint64_t* dest64 = (uint64_t*)dest;
+        uint32_t* dest32 = (uint32_t*)dest;
+        uint16_t* dest16 = (uint16_t*)dest;
+        auto swap64 = [&arch](uint32_t x) { return (arch->GetEndianness() == LittleEndian) ? x : bswap64(x); };
+        auto swap32 = [&arch](uint32_t x) { return (arch->GetEndianness() == LittleEndian) ? x : bswap32(x); };
+        auto swap16 = [&arch](uint16_t x) { return (arch->GetEndianness() == LittleEndian) ? x : bswap16(x); };
+        uint64_t target = reloc->GetTarget();
+        std::vector<Ref<Section>> sections;
+        uint64_t rela_src;
+        switch (info.nativeType) {
+        case R_BPF_64_64:
+            dest32[1] = swap32((uint32_t)((target + info.addend) & 0xffffffff));
+            dest32[3] = swap32((uint32_t)((target + info.addend) >> 32));
+            break;
+        case R_BPF_64_ABS64:
+            dest64[0] = swap64(target + info.addend);
+            break;
+        case R_BPF_64_ABS32:
+        case R_BPF_64_NODYLD32:
+            dest64[0] = swap32((uint32_t)(target + info.addend));
+            break;
+        case R_BPF_64_RELATIVE:
+            // Super weird reloc
+            sections = view->GetSectionsAt(reloc->GetAddress());
+            if (!sections.empty() && sections[0]->GetName() == ".text") {
+                rela_src = 0;
+                rela_src = swap32(dest32[1]) | ((uint64_t)(swap32(dest32[3])) << 32);
+                // wtf?
+                if (rela_src < 0x100000000) {
+                    rela_src += 0x100000000;
+                }
+                dest32[1] = swap32((uint32_t)((rela_src) & 0xffffffff));
+                dest32[3] = swap32((uint32_t)((rela_src) >> 32));
+            } else {
+                // i give up
+            }
+            sections.clear();
+            break;
+        case R_BPF_64_32:
+            // TODO This isn't documented as pc-rel, but BPF_INS_CALL takes pc-rel immediate
+            dest32[1] = swap32((uint32_t)((target + info.addend - reloc->GetAddress()) / 8 - 1));
+            break;
+        }
+        return true;
+    }
+
+    virtual bool GetRelocationInfo(Ref<BinaryView> view, Ref<Architecture> arch, std::vector<BNRelocationInfo>& result) override
+    {
+        std::set<uint64_t> relocTypes;
+        for (auto& reloc : result) {
+            reloc.type = StandardRelocationType;
+            reloc.size = 8;
+            reloc.pcRelative = false;
+            reloc.dataRelocation = false;
+            switch (reloc.nativeType) {
+            case R_BPF_NONE:
+                reloc.type = IgnoredRelocation;
+                break;
+            case R_BPF_64_64:
+                break;
+            case R_BPF_64_ABS64:
+                reloc.dataRelocation = true;
+                break;
+            case R_BPF_64_ABS32:
+            case R_BPF_64_NODYLD32:
+                reloc.dataRelocation = true;
+                reloc.size = 4;
+                break;
+            case R_BPF_64_RELATIVE:
+                reloc.pcRelative = true; // not really??
+                break;
+            case R_BPF_64_32:
+                reloc.size = 4;
+                break;
+			default:
+				reloc.type = UnhandledRelocation;
+				relocTypes.insert(reloc.nativeType);
+				break;
+            }
+        }
+		for (auto& reloc : relocTypes)
+			LogWarn("Unsupported ELF relocation type: %s", GetRelocationString((ElfBpfRelocationType)reloc));
+        return true;
     }
 };
 
@@ -669,6 +750,9 @@ BINARYNINJAPLUGIN bool CorePluginInit()
     conv = new SolanaCallingConvention(ebpf_le);
     ebpf_le->RegisterCallingConvention(conv);
     ebpf_le->SetDefaultCallingConvention(conv);
+
+    ebpf_le->RegisterRelocationHandler("ELF", new EbpfElfRelocationHandler());
+    ebpf_be->RegisterRelocationHandler("ELF", new EbpfElfRelocationHandler());
 
     return true;
 }

@@ -48,7 +48,7 @@ ebpf_release(void)
     }
 }
 
-extern "C" int
+extern "C" bool
 ebpf_decompose(const uint8_t* data,
     int size,
     uint64_t addr,
@@ -81,8 +81,9 @@ beach:
     if (insn) {
         cs_free(insn, 1);
         insn = 0;
+        return true;
     }
-    return 0;
+    return false;
 }
 
 extern "C" int

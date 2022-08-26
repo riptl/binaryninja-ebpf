@@ -2,6 +2,7 @@
 
 #include <capstone/bpf.h>
 #include <capstone/capstone.h>
+#include "util.h"
 
 //*****************************************************************************
 // structs and types
@@ -40,7 +41,7 @@ struct decomp_result {
 //*****************************************************************************
 extern "C" int ebpf_init(void);
 extern "C" void ebpf_release(void);
-extern "C" int ebpf_decompose(
+extern "C" bool ebpf_decompose(
     const uint8_t* data, int size, uint64_t addr,
     bool lil_end, struct decomp_result* result);
 extern "C" int ebpf_disassemble(
@@ -60,19 +61,30 @@ static inline int16_t Int16SignExtend(uint32_t x)
 
 static inline uint64_t JumpDest(const uint8_t* data, uint64_t addr, bool le)
 {
-    // TODO endianness
-    int16_t off;
-    if (le)
-        off = (int16_t)((uint16_t)data[2] | (uint16_t)data[3] << 8);
-    else
-        off = (int16_t)((uint16_t)data[3] | (uint16_t)data[2] << 8);
+    uint16_t raw = *(const uint16_t *)(data + 2);
+    if (!le)
+        raw = bswap16(raw);
+    int16_t off = (int16_t)raw;
     return addr + (int64_t)off * 8 + 8;
 }
 
 static inline uint64_t JumpDest(struct cs_bpf_op* op, uint64_t addr)
 {
-    uint64_t base = addr + 8;
-    int16_t off = Int16SignExtend(op->off);
-    int64_t offset = (int64_t)(off)*8;
-    return (uint64_t)((int64_t)base + offset);
+    int64_t off = Int16SignExtend(op->off);
+    return addr + (int64_t)off * 8 + 8;
+}
+
+static inline uint64_t CallDest(const uint8_t* data, uint64_t addr, bool le)
+{
+    uint32_t raw = *(const uint32_t *)(data + 4);
+    if (!le)
+        raw = bswap32(raw);
+    int64_t off = (int32_t)raw;
+    return addr + (int64_t)off * 8 + 8;
+}
+
+static inline uint64_t CallDest(struct cs_bpf_op* op, uint64_t addr)
+{
+    int64_t off = (int32_t)op->imm;
+    return addr + (int64_t)off * 8 + 8;
 }
