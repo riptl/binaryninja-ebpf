@@ -16,6 +16,7 @@ file(GLOB SOURCES
 	arch_ebpf.cpp
 	disassembler.cpp
 	il.cpp
+	syscalls.cpp
 	*.h
 )
 

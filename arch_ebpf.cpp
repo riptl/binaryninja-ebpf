@@ -10,6 +10,7 @@ using namespace BinaryNinja;
 #include "disassembler.h"
 #include "il.h"
 #include "opcodes.h"
+#include "syscalls.h"
 
 enum ElfBpfRelocationType {
     R_BPF_NONE = 0,
@@ -171,13 +172,27 @@ public:
         /* padding between mnemonic and operands */
         result.emplace_back(TextToken, std::string(10 - strlen(insn->mnemonic), ' '));
 
-        if (insn->id == BPF_INS_CALL) {
+        // special instructions
+        switch (insn->id) {
+        case BPF_INS_CALL: {
             int64_t off = (int32_t)bpf->operands[0].imm;
             off = off * 8 + 8;
             FMT_I64(off);
             result.emplace_back(PossibleAddressToken, buf, bpf->operands[0].imm, 8);
             len = 8;
             return true;
+        }
+        case BPF_INS_SYSCALL: {
+            uint32_t id = bpf->operands[0].imm;
+            if (SbfSyscalls.find(id) != SbfSyscalls.end()) {
+                const char* name = SbfSyscalls[id];
+                result.emplace_back(TextToken, name);
+            } else {
+                std::snprintf(buf, sizeof(buf), "%#08x", id);
+                result.emplace_back(TextToken, buf);
+            }
+            return true;
+        }
         }
 
         /* operands */
