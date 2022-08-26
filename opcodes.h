@@ -51,6 +51,10 @@
 #define BPF_OPC_XOR64_REG 0xaf
 #define BPF_OPC_MOV64_IMM 0xb7
 #define BPF_OPC_MOV64_REG 0xbf
+#define BPF_OPC_ARSH64_IMM 0xc7
+#define BPF_OPC_ARSH64_REG 0xcf
+#define BPF_OPC_SDIV64_IMM 0xe7
+#define BPF_OPC_SDIV64_REG 0xef
 
 // ALU32 class
 #define BPF_OPC_ADD32_IMM 0x04

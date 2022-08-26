@@ -2,7 +2,9 @@
 
 Author: **[terorie](https://github.com/terorie)**
 
-This BN plugin implements a Capstone-powered disassembler and lifter for the eBPF architecture and its Solana derivatives.
+This BN plugin implements a Capstone-powered disassembler and lifter for the Solana derivatives bytecode format.
+
+Kernel eBPF support is WIP.
 
 ## Dependencies
 

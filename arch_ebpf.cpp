@@ -101,7 +101,6 @@ public:
         size_t maxLen,
         InstructionInfo& result) override
     {
-
         struct decomp_result res;
         struct cs_insn* insn = &(res.insn);
 
@@ -110,6 +109,29 @@ public:
         }
         if (ebpf_decompose(data, 16, addr, endian == LittleEndian, &res)) {
             goto beach;
+        }
+
+        switch (insn->id) {
+        case BPF_INS_JMP:
+            result.AddBranch(UnconditionalBranch, JumpDest(data, addr, endian == LittleEndian));
+            break;
+        case BPF_INS_JEQ:
+        case BPF_INS_JGT:
+        case BPF_INS_JGE:
+        case BPF_INS_JSET:
+        case BPF_INS_JNE:
+        case BPF_INS_JSGT:
+        case BPF_INS_JSGE:
+        case BPF_INS_JLT:
+        case BPF_INS_JLE:
+        case BPF_INS_JSLT:
+        case BPF_INS_JSLE:
+            result.AddBranch(TrueBranch, JumpDest(data, addr, endian == LittleEndian));
+            result.AddBranch(FalseBranch, addr + 8);
+            break;
+        case BPF_INS_EXIT:
+            result.AddBranch(FunctionReturn);
+            break;
         }
 
         result.length = 8;
@@ -148,6 +170,13 @@ public:
         else
             buf[1] = '\0';
         result.emplace_back(TextToken, buf);
+
+        if (insn->id == BPF_INS_CALL) {
+            std::sprintf(buf, "%#lx", bpf->operands[0].imm);
+            result.emplace_back(PossibleAddressToken, buf, bpf->operands[0].imm, 8);
+            len = 8;
+            return true;
+        }
 
         /* operands */
         for (int i = 0; i < bpf->op_count; ++i) {
@@ -211,7 +240,22 @@ public:
         size_t& len,
         LowLevelILFunction& il) override
     {
-        return false;
+        bool rc = false;
+        struct decomp_result res;
+
+        if (len < 8) {
+            goto beach;
+        }
+        if (ebpf_decompose(data, len, addr, endian == LittleEndian, &res)) {
+            il.AddInstruction(il.Undefined());
+            goto beach;
+        }
+
+        rc = GetLowLevelILForBPFInstruction(this, il, data, addr, &res, endian == LittleEndian);
+        len = 8;
+
+    beach:
+        return rc;
     }
 
     virtual size_t GetFlagWriteLowLevelIL(BNLowLevelILOperation op, size_t size, uint32_t flagWriteType,
