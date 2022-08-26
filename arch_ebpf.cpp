@@ -119,11 +119,10 @@ public:
             result.AddBranch(FalseBranch, addr + 8);
             break;
         case BPF_INS_CALL:
-            if ((data[1] & 0xF0) == 0x10) {
-                result.AddBranch(CallDestination, CallDest(data, addr, endian == LittleEndian));
-            } else {
-                result.AddBranch(SystemCall);
-            }
+            result.AddBranch(CallDestination, CallDest(data, addr, endian == LittleEndian));
+            break;
+        case BPF_INS_SYSCALL:
+            result.AddBranch(SystemCall);
             break;
         case BPF_INS_CALLX:
             result.AddBranch(UnresolvedBranch);

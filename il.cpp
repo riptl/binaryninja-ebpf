@@ -100,9 +100,9 @@ bool GetLowLevelILForBPFInstruction(Architecture* arch, LowLevelILFunction& il,
     struct cs_detail* detail = &(res->detail);
     struct cs_bpf* bpf = &(detail->bpf);
 
+    // clang-format off
     /* create convenient access to instruction operands */
     cs_bpf_op *oper0 = NULL, *oper1 = NULL, *oper2 = NULL, *oper3 = NULL, *oper4 = NULL;
-// clang-format off
     #define REQUIRE1OP if(!oper0) goto ReturnUnimpl;
 	#define REQUIRE2OPS if(!oper0 || !oper1) goto ReturnUnimpl;
 	#define REQUIRE3OPS if(!oper0 || !oper1 || !oper2) goto ReturnUnimpl;
@@ -256,6 +256,84 @@ bool GetLowLevelILForBPFInstruction(Architecture* arch, LowLevelILFunction& il,
     case BPF_INS_ARSH64:
         REQUIRE2OPS
         ei0 = il.ArithShiftRight(8, operToIL(il, oper0), operToIL(il, oper1));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    // ALU32 class
+    case BPF_INS_ADD:
+        REQUIRE2OPS
+        ei0 = il.Add(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_SUB:
+        REQUIRE2OPS
+        ei0 = il.Sub(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_MUL:
+        REQUIRE2OPS
+        ei0 = il.Mult(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_DIV:
+        REQUIRE2OPS
+        ei0 = il.DivUnsigned(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_OR:
+        REQUIRE2OPS
+        ei0 = il.Or(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_AND:
+        REQUIRE2OPS
+        ei0 = il.And(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_LSH:
+        REQUIRE2OPS
+        ei0 = il.ShiftLeft(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_RSH:
+        REQUIRE2OPS
+        ei0 = il.LogicalShiftRight(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_NEG:
+        REQUIRE1OP
+        ei0 = il.Neg(4, il.LowPart(4, operToIL(il, oper0)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_MOD:
+        REQUIRE2OPS
+        ei0 = il.ModUnsigned(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_XOR:
+        REQUIRE2OPS
+        ei0 = il.Xor(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
+        ei0 = il.SetRegister(8, oper0->reg, ei0);
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_MOV:
+        REQUIRE2OPS
+        ei0 = il.SetRegister(8, oper0->reg, il.LowPart(4, operToIL(il, oper1)));
+        il.AddInstruction(ei0);
+        break;
+    case BPF_INS_ARSH:
+        REQUIRE2OPS
+        ei0 = il.ArithShiftRight(4, il.LowPart(4, operToIL(il, oper0)), il.LowPart(4, operToIL(il, oper1)));
         ei0 = il.SetRegister(8, oper0->reg, ei0);
         il.AddInstruction(ei0);
         break;
