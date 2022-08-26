@@ -101,6 +101,7 @@ public:
             goto beach;
         }
 
+        result.length = 8;
         switch (insn->id) {
         case BPF_INS_JMP:
             result.AddBranch(UnconditionalBranch, JumpDest(data, addr, endian == LittleEndian));
@@ -131,9 +132,11 @@ public:
         case BPF_INS_EXIT:
             result.AddBranch(FunctionReturn);
             break;
+        case BPF_INS_LDDW:
+            result.length = 16;
+            break;
         }
 
-        result.length = 8;
     beach:
         return true;
     }
