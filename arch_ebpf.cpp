@@ -88,7 +88,7 @@ public:
 
     virtual BNEndianness GetEndianness() const override { return endian; }
 
-    virtual size_t GetAddressSize() const override { return 4; }
+    virtual size_t GetAddressSize() const override { return 8; }
 
     virtual size_t GetDefaultIntegerSize() const override { return 8; }
 
@@ -128,6 +128,16 @@ public:
         case BPF_INS_JSLE:
             result.AddBranch(TrueBranch, JumpDest(data, addr, endian == LittleEndian));
             result.AddBranch(FalseBranch, addr + 8);
+            break;
+        case BPF_INS_CALL:
+            if (data[1] & 0xF0 == 0x10) {
+                result.AddBranch(CallDestination, JumpDest(data, addr, endian == LittleEndian));
+            } else {
+                result.AddBranch(SystemCall);
+            }
+            break;
+        case BPF_INS_CALLX:
+            result.AddBranch(UnresolvedBranch);
             break;
         case BPF_INS_EXIT:
             result.AddBranch(FunctionReturn);
@@ -589,6 +599,45 @@ public:
     }
 };
 
+class SolanaCallingConvention : public CallingConvention {
+public:
+    SolanaCallingConvention(Architecture* arch)
+        : CallingConvention(arch, "solana")
+    {
+    }
+
+    virtual std::vector<uint32_t> GetIntegerArgumentRegisters() override
+    {
+        return {
+            BPF_REG_R1,
+            BPF_REG_R2,
+            BPF_REG_R3,
+            BPF_REG_R4,
+            BPF_REG_R5,
+        };
+    }
+
+    virtual std::vector<uint32_t> GetCallerSavedRegisters() override
+    {
+        return {};
+    }
+
+    virtual std::vector<uint32_t> GetCalleeSavedRegisters() override
+    {
+        return {
+            BPF_REG_R6,
+            BPF_REG_R7,
+            BPF_REG_R8,
+            BPF_REG_R9,
+        };
+    }
+
+    virtual uint32_t GetIntegerReturnValueRegister() override
+    {
+        return PPC_REG_R0;
+    }
+};
+
 extern "C" {
 BN_DECLARE_CORE_ABI_VERSION
 
@@ -612,6 +661,14 @@ BINARYNINJAPLUGIN bool CorePluginInit()
         EM_BPF,
         LittleEndian,
         ebpf_le);
+
+    Ref<CallingConvention> conv;
+    conv = new SolanaCallingConvention(ebpf_be);
+    ebpf_be->RegisterCallingConvention(conv);
+    ebpf_be->SetDefaultCallingConvention(conv);
+    conv = new SolanaCallingConvention(ebpf_le);
+    ebpf_le->RegisterCallingConvention(conv);
+    ebpf_le->SetDefaultCallingConvention(conv);
 
     return true;
 }

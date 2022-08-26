@@ -58,7 +58,8 @@ static inline int16_t Int16SignExtend(uint32_t x)
     return ret;
 }
 
-static inline uint64_t JumpDest(const uint8_t *data, uint64_t addr, bool le) {
+static inline uint64_t JumpDest(const uint8_t* data, uint64_t addr, bool le)
+{
     // TODO endianness
     int16_t off;
     if (le)

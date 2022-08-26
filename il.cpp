@@ -100,7 +100,7 @@ bool GetLowLevelILForBPFInstruction(Architecture* arch, LowLevelILFunction& il,
 
     /* create convenient access to instruction operands */
     cs_bpf_op *oper0 = NULL, *oper1 = NULL, *oper2 = NULL, *oper3 = NULL, *oper4 = NULL;
-    // clang-format off
+// clang-format off
     #define REQUIRE1OP if(!oper0) goto ReturnUnimpl;
 	#define REQUIRE2OPS if(!oper0 || !oper1) goto ReturnUnimpl;
 	#define REQUIRE3OPS if(!oper0 || !oper1 || !oper2) goto ReturnUnimpl;
