@@ -127,7 +127,7 @@ public:
             result.AddBranch(SystemCall);
             break;
         case BPF_INS_CALLX:
-            result.AddBranch(UnresolvedBranch);
+            result.AddBranch(CallDestination);
             break;
         case BPF_INS_EXIT:
             result.AddBranch(FunctionReturn);
@@ -379,7 +379,7 @@ public:
             BPF_REG_R8,
             BPF_REG_R9,
             BPF_REG_R10,
-            // BPF_REG_R11
+            BPF_REG_R11
         };
     }
 
@@ -397,7 +397,7 @@ public:
             BPF_REG_R8,
             BPF_REG_R9,
             BPF_REG_R10,
-            // BPF_REG_R11
+            BPF_REG_R11
         };
     }
 
@@ -420,6 +420,7 @@ public:
         case BPF_REG_R8:
         case BPF_REG_R9:
         case BPF_REG_R10:
+        case BPF_REG_R11:
             return RegisterInfo(regId, 0, 8);
         default:
             return RegisterInfo(0, 0, 0);
@@ -428,13 +429,12 @@ public:
 
     virtual uint32_t GetStackPointerRegister() override
     {
-        // R11 but Capstone doesn't support that yet
-        return 0;
+        return BPF_REG_R11;
     }
 
     virtual uint32_t GetLinkRegister() override
     {
-        return 0;
+        return BPF_REG_R10;
     }
 
     /*************************************************************************/
@@ -570,42 +570,6 @@ public:
     }
 };
 
-class EBPFElfRelocationHandler : public RelocationHandler {
-public:
-    virtual bool ApplyRelocation(Ref<BinaryView> view, Ref<Architecture> arch, Ref<Relocation> reloc, uint8_t* dest, size_t len) override
-    {
-        auto info = reloc->GetInfo();
-        switch (info.nativeType) {
-        case R_BPF_64_64:
-            break;
-        case R_BPF_64_ABS64:
-            break;
-        case R_BPF_64_ABS32:
-            break;
-        case R_BPF_64_NODYLD32:
-            break;
-        case R_BPF_64_RELATIVE:
-            break;
-        case R_BPF_64_32:
-            break;
-        default:
-            return false;
-        }
-        return true;
-    }
-
-    virtual bool GetRelocationInfo(Ref<BinaryView> view, Ref<Architecture> arch, std::vector<BNRelocationInfo>& result) override
-    {
-        std::set<uint64_t> relocTypes;
-        for (auto& reloc : result) {
-            switch (reloc.nativeType) {
-                // TODO
-            }
-        }
-        return true;
-    }
-};
-
 class SolanaCallingConvention : public CallingConvention {
 public:
     SolanaCallingConvention(Architecture* arch)
@@ -626,7 +590,9 @@ public:
 
     virtual std::vector<uint32_t> GetCallerSavedRegisters() override
     {
-        return {};
+        return {
+            BPF_REG_R10,
+        };
     }
 
     virtual std::vector<uint32_t> GetCalleeSavedRegisters() override
@@ -645,17 +611,33 @@ public:
     }
 };
 
+static void HijackAsSyscall(uint8_t* dest, uint32_t id, bool le)
+{
+    uint64_t ins = 0x0000000000000085 | (((uint64_t)id) << 32);
+    if (!le) {
+        ins = bswap64(ins);
+    }
+    (*(uint64_t*)dest) = ins;
+}
+
 class EbpfElfRelocationHandler : public RelocationHandler {
 public:
     virtual bool ApplyRelocation(Ref<BinaryView> view, Ref<Architecture> arch, Ref<Relocation> reloc, uint8_t* dest, size_t len) override
     {
+        auto sym = reloc->GetSymbol();
+        std::string symName;
+        if (sym) {
+            symName = sym->GetFullName();
+        }
+
+        bool le = arch->GetEndianness() == LittleEndian;
         auto info = reloc->GetInfo();
         uint64_t* dest64 = (uint64_t*)dest;
         uint32_t* dest32 = (uint32_t*)dest;
         uint16_t* dest16 = (uint16_t*)dest;
-        auto swap64 = [&arch](uint32_t x) { return (arch->GetEndianness() == LittleEndian) ? x : bswap64(x); };
-        auto swap32 = [&arch](uint32_t x) { return (arch->GetEndianness() == LittleEndian) ? x : bswap32(x); };
-        auto swap16 = [&arch](uint16_t x) { return (arch->GetEndianness() == LittleEndian) ? x : bswap16(x); };
+        auto swap64 = [&arch, le](uint32_t x) { return le ? x : bswap64(x); };
+        auto swap32 = [&arch, le](uint32_t x) { return le ? x : bswap32(x); };
+        auto swap16 = [&arch, le](uint16_t x) { return le ? x : bswap16(x); };
         uint64_t target = reloc->GetTarget();
         std::vector<Ref<Section>> sections;
         uint64_t rela_src;
@@ -689,6 +671,16 @@ public:
             sections.clear();
             break;
         case R_BPF_64_32:
+            // If reloc matches a known syscall name, rewrite instruction to BPF_INS_SYSCALL instead.
+            if (!symName.empty()) {
+                for (auto const& other : SbfSyscalls) {
+                    if (symName.compare(other.second) == 0) {
+                        HijackAsSyscall(dest, other.first, le);
+                        return true;
+                    }
+                }
+            }
+
             // TODO This isn't documented as pc-rel, but BPF_INS_CALL takes pc-rel immediate
             dest32[1] = swap32((uint32_t)((target + info.addend - reloc->GetAddress()) / 8 - 1));
             break;

@@ -16,10 +16,10 @@ ebpf_init(void)
         goto beach;
     }
 
-    if (cs_open(CS_ARCH_BPF, (cs_mode)(CS_MODE_BIG_ENDIAN | CS_MODE_BPF_EXTENDED), &handle_big) != CS_ERR_OK) {
+    if (cs_open(CS_ARCH_BPF, (cs_mode)(CS_MODE_BIG_ENDIAN | CS_MODE_BPF_EXTENDED | CS_MODE_SBFV2), &handle_big) != CS_ERR_OK) {
         goto beach;
     }
-    if (cs_open(CS_ARCH_BPF, (cs_mode)(CS_MODE_LITTLE_ENDIAN | CS_MODE_BPF_EXTENDED), &handle_lil) != CS_ERR_OK) {
+    if (cs_open(CS_ARCH_BPF, (cs_mode)(CS_MODE_LITTLE_ENDIAN | CS_MODE_BPF_EXTENDED | CS_MODE_SBFV2), &handle_lil) != CS_ERR_OK) {
         goto beach;
     }
 

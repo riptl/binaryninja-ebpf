@@ -434,13 +434,17 @@ bool GetLowLevelILForBPFInstruction(Architecture* arch, LowLevelILFunction& il,
     // Call class
     case BPF_INS_CALL:
         REQUIRE1OP
-        if ((data[1] & 0xF0) == 0x10) {
-            ei0 = il.ConstPointer(8, CallDest(oper0, addr));
-            ei0 = il.Call(ei0);
-        } else {
-            ei0 = il.SystemCall();
-        }
+        ei0 = il.ConstPointer(8, CallDest(oper0, addr));
+        ei0 = il.Call(ei0);
         il.AddInstruction(ei0);
+        break;
+    case BPF_INS_SYSCALL:
+        REQUIRE1OP
+        if (oper0->imm == 0xb6fc1a11) {
+            il.AddInstruction(il.Trap(0));
+            break;
+        }
+        il.AddInstruction(il.SystemCall());
         break;
     case BPF_INS_CALLX:
         REQUIRE1OP
