@@ -1,8 +1,8 @@
 #pragma once
 
+#include "util.h"
 #include <capstone/bpf.h>
 #include <capstone/capstone.h>
-#include "util.h"
 
 //*****************************************************************************
 // structs and types
@@ -61,7 +61,7 @@ static inline int16_t Int16SignExtend(uint32_t x)
 
 static inline uint64_t JumpDest(const uint8_t* data, uint64_t addr, bool le)
 {
-    uint16_t raw = *(const uint16_t *)(data + 2);
+    uint16_t raw = *(const uint16_t*)(data + 2);
     if (!le)
         raw = bswap16(raw);
     int16_t off = (int16_t)raw;
@@ -76,7 +76,7 @@ static inline uint64_t JumpDest(struct cs_bpf_op* op, uint64_t addr)
 
 static inline uint64_t CallDest(const uint8_t* data, uint64_t addr, bool le)
 {
-    uint32_t raw = *(const uint32_t *)(data + 4);
+    uint32_t raw = *(const uint32_t*)(data + 4);
     if (!le)
         raw = bswap32(raw);
     int64_t off = (int32_t)raw;

@@ -664,7 +664,7 @@ public:
                 if (rela_src < 0x100000000) {
                     rela_src += 0x100000000;
                 }
-                dest32[1] = swap32((uint32_t)((rela_src) & 0xffffffff));
+                dest32[1] = swap32((uint32_t)((rela_src)&0xffffffff));
                 dest32[3] = swap32((uint32_t)((rela_src) >> 32));
             } else {
                 // i give up
@@ -707,14 +707,14 @@ public:
             case R_BPF_64_32:
                 reloc.size = 4;
                 break;
-			default:
-				reloc.type = UnhandledRelocation;
-				relocTypes.insert(reloc.nativeType);
-				break;
+            default:
+                reloc.type = UnhandledRelocation;
+                relocTypes.insert(reloc.nativeType);
+                break;
             }
         }
-		for (auto& reloc : relocTypes)
-			LogWarn("Unsupported ELF relocation type: %s", GetRelocationString((ElfBpfRelocationType)reloc));
+        for (auto& reloc : relocTypes)
+            LogWarn("Unsupported ELF relocation type: %s", GetRelocationString((ElfBpfRelocationType)reloc));
         return true;
     }
 };
