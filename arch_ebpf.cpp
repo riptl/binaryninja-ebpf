@@ -728,6 +728,89 @@ public:
     }
 };
 
+void DefineSolanaCTypes(BNTypeLibrary* lib)
+{
+    // SolAccountInfo
+    {
+        StructureBuilder b;
+        b.AddMember(Type::PointerType(8, Type::IntegerType(1, false)), "key");
+        b.AddMember(Type::PointerType(8, Type::IntegerType(8, false)), "lamports");
+        b.AddMember(Type::IntegerType(8, false), "data_len");
+        b.AddMember(Type::PointerType(8, Type::IntegerType(1, false)), "data");
+        b.AddMember(Type::PointerType(8, Type::IntegerType(1, false)), "owner");
+        b.AddMember(Type::IntegerType(8, false), "rent_epoch");
+        b.AddMember(Type::BoolType(), "is_signer");
+        b.AddMember(Type::BoolType(), "is_writable");
+        b.AddMember(Type::BoolType(), "executable");
+        auto structure = b.Finalize();
+
+        QualifiedName name = std::string("SolAccountInfo");
+        std::string typeId = Type::GenerateAutoTypeId("ebpf_le", name);
+        auto coreName = name.GetAPIObject();
+        auto type = Type::StructureType(structure);
+        BNAddTypeLibraryNamedType(lib, &coreName, type->GetObject());
+    }
+}
+
+/*
+void RemapSegment(BinaryView *view, const Ref<Segment>& segment, uint64_t naddr) {
+    uint64_t start = segment->GetStart();
+    uint64_t length = segment->GetLength();
+
+    // Redefine segment
+    // Probably better to have our own loader, but whatever
+    view->RemoveAutoSegment(segment->GetStart(), segment->GetLength());
+    view->AddUserSegment(naddr, segment->GetLength(), segment->GetDataOffset(), segment->GetDataLength(), segment->GetFlags());
+
+    // Unfortunately, we'll have to move sections too
+    // BinaryNinja is supposed to have a Segment::SetStart to take care of this but it's only in core, not C API :/
+    auto sections = view->GetSections();
+    for (auto const &section : sections) {
+        auto section_start = section->GetStart();
+        if (section_start >= start && section_start < start+length) {
+            // Pain
+            view->RemoveAutoSection(section->GetName());
+            view->AddUserSection(
+                section->GetName(),
+                section->GetStart(),
+                section->GetLength(),
+                section->GetSemantics(),
+                section->GetType(),
+                section->GetAlignment(),
+                section->GetEntrySize(),
+                section->GetLinkedSection(),
+                section->GetInfoSection(),
+                section->GetInfoData()
+            );
+        }
+    }
+}
+
+void FixupSolanaSegments(BinaryView *view)
+{
+    // Remap segments to their intended location
+    bool textRemapped = false, rodataRemapped = false;
+    for (auto const& segment : view->GetSegments()) {
+        uint32_t flags = segment->GetFlags();
+        if (flags == 5 && !textRemapped) {
+            puts("remapping text");
+            RemapSegment(view, segment, 0x100000000);
+            textRemapped = true;
+        } else if (flags == 4 && !rodataRemapped) {
+            puts("remapping rodata");
+            RemapSegment(view, segment, 0x200000000);
+            rodataRemapped = true;
+        }
+    }
+}
+*/
+
+void HijackSolanaBinaryView(BinaryView* view)
+{
+    // Callback when a new BinaryView of a Solana program is loaded.
+    // FixupSolanaSegments(view);
+}
+
 extern "C" {
 BN_DECLARE_CORE_ABI_VERSION
 
@@ -759,9 +842,22 @@ BINARYNINJAPLUGIN bool CorePluginInit()
     conv = new SolanaCallingConvention(ebpf_le);
     ebpf_le->RegisterCallingConvention(conv);
     ebpf_le->SetDefaultCallingConvention(conv);
+    auto ebpf_le_platform = ebpf_le->GetStandalonePlatform();
 
     ebpf_le->RegisterRelocationHandler("ELF", new EbpfElfRelocationHandler());
     ebpf_be->RegisterRelocationHandler("ELF", new EbpfElfRelocationHandler());
+
+    // TypeLibrary has no C++ bindings so we have to use Core API here.
+    BNTypeLibrary* solanaCTypes = BNNewTypeLibrary(ebpf_le->GetObject(), "solana_c");
+    BNAddTypeLibraryPlatform(solanaCTypes, ebpf_le_platform->GetObject());
+    DefineSolanaCTypes(solanaCTypes);
+    BNFinalizeTypeLibrary(solanaCTypes);
+
+    BinaryViewType::RegisterBinaryViewInitialAnalysisCompletionEvent([](BinaryView* view) {
+        if (view->GetDefaultArchitecture()->GetName() == "ebpf_le") {
+            HijackSolanaBinaryView(view);
+        }
+    });
 
     return true;
 }
